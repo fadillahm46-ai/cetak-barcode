@@ -7,12 +7,19 @@ var SHEET_NAME = 'History';
 
 /**
  * Menangani akses GET:
- * 1. Redirect QR Dinamis jika ada parameter (?r=ID) dengan anti-cache
- * 2. API sinkronisasi CORS-friendly dari Vercel (?action=list, save, update, delete)
- * 3. Menampilkan Web App utama
+ * 1. Pengambilan link tujuan berdasarkan ID (?action=get&id=...)
+ * 2. Redirect langsung jika ada yang membuka link Apps Script (?r=ID)
+ * 3. API sinkronisasi (?action=list, save, update, delete)
  */
 function doGet(e) {
-  // 1. Fitur Redirect QR Dinamis: Scan barcode -> Buka link terbaru dari Sheets
+  // 1. API cepat untuk mengambil URL tujuan dari Web Vercel
+  if (e && e.parameter && e.parameter.action === 'get') {
+    var target = getRedirectUrl(e.parameter.id);
+    return ContentService.createTextOutput(JSON.stringify({ success: !!target, url: target }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 2. Redirect fallback langsung jika dibuka lewat link Apps Script
   if (e && e.parameter && e.parameter.r) {
     var targetUrl = getRedirectUrl(e.parameter.r);
     if (targetUrl) {
@@ -22,25 +29,19 @@ function doGet(e) {
       var html = '<!DOCTYPE html><html><head>' +
         '<meta charset="UTF-8">' +
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
-        '<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">' +
-        '<meta http-equiv="Pragma" content="no-cache">' +
-        '<meta http-equiv="Expires" content="0">' +
         '<meta http-equiv="refresh" content="0;url=' + encodeURI(targetUrl) + '">' +
         '<title>Mengarahkan...</title>' +
-        '<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#334155;text-align:center;padding:20px;}</style>' +
         '</head><body>' +
-        '<div><h3 style="margin:0 0 8px 0;font-size:16px;">Mengarahkan ke link tujuan...</h3><p style="margin:0;font-size:13px;color:#64748b;"><a href="' + encodeURI(targetUrl) + '" style="color:#4f46e5;font-weight:bold;">Klik di sini jika tidak otomatis berpindah</a></p></div>' +
         '<script>window.location.replace("' + encodeURI(targetUrl) + '");<\/script>' +
         '</body></html>';
       return HtmlService.createHtmlOutput(html)
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-        .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     } else {
-      return HtmlService.createHtmlOutput('<div style="font-family:sans-serif;text-align:center;padding:40px;"><h3>Link barcode tidak ditemukan atau sudah dihapus.</h3></div>');
+      return HtmlService.createHtmlOutput('<div style="font-family:sans-serif;text-align:center;padding:40px;"><h3>Link barcode tidak ditemukan.</h3></div>');
     }
   }
 
-  // 2. API CORS-friendly untuk web di Vercel (dipanggil via GET)
+  // 3. API sinkronisasi CORS-friendly dari Vercel
   if (e && e.parameter && e.parameter.action) {
     var res = {};
     var action = e.parameter.action;
@@ -64,16 +65,11 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // 3. Tampilan web app utama jika dibuka langsung di Apps Script
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('Barcode Link Generator')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * Menangani aksi simpan, ubah (edit), dan hapus data via POST
- */
 function doPost(e) {
   try {
     var body = {};
@@ -98,9 +94,6 @@ function doPost(e) {
   }
 }
 
-/**
- * Helper: Pencocokan ID fleksibel (mendukung teks, angka, maupun notasi saintifik Google Sheets)
- */
 function isSameId(val1, val2) {
   if (val1 == null || val2 == null) return false;
   var s1 = String(val1).trim().replace(/^'+/, '');
@@ -118,9 +111,6 @@ function isSameId(val1, val2) {
   return false;
 }
 
-/**
- * Mencari link tujuan berdasarkan ID untuk fitur scan redirect QR Dinamis
- */
 function getRedirectUrl(id) {
   try {
     var targetId = String(id || '').trim();
@@ -131,7 +121,6 @@ function getRedirectUrl(id) {
       var lastRow = sheet.getLastRow();
       if (lastRow > 1) {
         var data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
-        // Loop dari baris terbaru
         for (var i = data.length - 1; i >= 0; i--) {
           if (isSameId(data[i][0], targetId)) {
             var url = String(data[i][2] || '').trim();
@@ -146,9 +135,6 @@ function getRedirectUrl(id) {
   }
 }
 
-/**
- * Mengambil seluruh daftar riwayat barcode dari Google Sheets
- */
 function getHistory() {
   try {
     var sheet = getOrCreateSheet_();
@@ -177,9 +163,6 @@ function getHistory() {
   }
 }
 
-/**
- * Menyimpan data barcode baru
- */
 function saveBarcode(payload) {
   try {
     var rawId = payload.id ? String(payload.id).trim() : '';
@@ -196,7 +179,6 @@ function saveBarcode(payload) {
 
     var sheet = getOrCreateSheet_();
     if (sheet) {
-      // Simpan ID dengan awalan tanda petik satu agar Google Sheets tidak mengubahnya jadi angka eksponensial
       sheet.appendRow(["'" + item.id, item.label, item.url, item.type, item.createdAt, item.mode]);
       SpreadsheetApp.flush();
     }
@@ -207,10 +189,6 @@ function saveBarcode(payload) {
   }
 }
 
-/**
- * Memperbarui link tujuan atau nama barcode yang sudah ada
- * Ini yang membuat barcode fisik yang sudah dicetak langsung mengikuti link baru!
- */
 function updateBarcode(payload) {
   try {
     var targetId = String(payload.id || '').trim();
@@ -229,7 +207,7 @@ function updateBarcode(payload) {
             var row = i + 2;
             if (newLabel) sheet.getRange(row, 2).setValue(newLabel);
             if (newUrl) sheet.getRange(row, 3).setValue(newUrl);
-            SpreadsheetApp.flush(); // Pastikan perubahan langsung tersimpan ke Google Sheets
+            SpreadsheetApp.flush();
             return { success: true, id: targetId, label: newLabel, url: newUrl };
           }
         }
@@ -241,9 +219,6 @@ function updateBarcode(payload) {
   }
 }
 
-/**
- * Menghapus barcode berdasarkan ID
- */
 function deleteBarcode(id) {
   try {
     var targetId = String(id || '').trim();
@@ -268,9 +243,6 @@ function deleteBarcode(id) {
   }
 }
 
-/**
- * Helper: Membuka Google Sheets menggunakan ID yang telah ditentukan
- */
 function getOrCreateSheet_() {
   try {
     var ss;
