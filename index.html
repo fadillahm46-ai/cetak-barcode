@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Barcode Link Generator</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- QRious (QR Barcode untuk Scan Link HP) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <!-- JsBarcode (Barcode Garis 1D) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen p-4 md:p-6">
+
+  <!-- Toast Notifikasi -->
+  <div id="toast" class="fixed top-4 right-4 z-50 hidden bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg transition-all"></div>
+
+  <div class="max-w-4xl mx-auto space-y-5">
+    
+    <!-- Header Singkat -->
+    <header class="bg-white rounded-2xl px-5 py-4 shadow-sm border border-slate-200 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg">
+          ⌗
+        </div>
+        <div>
+          <h1 class="font-bold text-base text-slate-900">Barcode Link</h1>
+          <p class="text-xs text-emerald-600 font-medium" id="storageStatus">Menghubungkan ke Google Sheets...</p>
+        </div>
+      </div>
+      <span id="totalBadge" class="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">0 Tersimpan</span>
+    </header>
+
+    <!-- Grid Utama: Form & Preview -->
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+      
+      <!-- Form Input -->
+      <div class="md:col-span-7 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between space-y-4">
+        <form id="barcodeForm" class="space-y-4" onsubmit="handleSave(event)">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Nama / Label</label>
+            <input 
+              type="text" 
+              id="labelInput" 
+              required
+              placeholder="Contoh: Peminjaman Tools / Barang" 
+              oninput="renderLivePreview()"
+              class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Link Tujuan (URL)</label>
+            <input 
+              type="text" 
+              id="urlInput" 
+              required
+              placeholder="https://contoh.com" 
+              oninput="renderLivePreview()"
+              class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Model Barcode</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button 
+                type="button" 
+                id="btnTypeQr"
+                onclick="setType('qr')"
+                class="py-2 px-3 rounded-xl text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 transition">
+                QR Barcode (Scan HP)
+              </button>
+              <button 
+                type="button" 
+                id="btnType1d"
+                onclick="setType('1d')"
+                class="py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition">
+                Barcode Garis (1D)
+              </button>
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            id="submitBtn"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-semibold text-sm py-3 rounded-xl shadow-sm transition">
+            Buat & Simpan
+          </button>
+        </form>
+      </div>
+
+      <!-- Hasil Barcode -->
+      <div class="md:col-span-5 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col items-center justify-between text-center">
+        <div id="previewCard" class="w-full bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col items-center justify-center min-h-[220px]">
+          <p id="previewTitle" class="text-sm font-bold text-slate-800 mb-2 truncate max-w-full">Preview Barcode</p>
+          
+          <!-- Canvas QR (Resolusi tinggi, ukuran tampilan diatur CSS) -->
+          <canvas id="qrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
+          
+          <!-- Canvas 1D Barcode -->
+          <canvas id="barcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
+
+          <a id="previewUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block">
+            https://contoh.com
+          </a>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 w-full mt-4">
+          <button 
+            type="button" 
+            onclick="downloadCurrentBarcode()" 
+            class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition">
+            Unduh PNG (HD)
+          </button>
+          <button 
+            type="button" 
+            onclick="copyCurrentLink()" 
+            class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">
+            Salin Link
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Riwayat Penyimpanan -->
+    <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <h2 class="font-bold text-sm text-slate-900">Riwayat Barcode</h2>
+          <button 
+            type="button" 
+            onclick="exportHistoryJson()" 
+            title="Unduh cadangan riwayat"
+            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition">
+            Ekspor
+          </button>
+          <label 
+            title="Muat cadangan riwayat"
+            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition cursor-pointer">
+            Impor
+            <input type="file" id="importFileInput" accept=".json" onchange="importHistoryJson(event)" class="hidden" />
+          </label>
+        </div>
+        <input 
+          type="text" 
+          id="searchInput" 
+          oninput="renderHistoryList()" 
+          placeholder="Cari nama atau link..." 
+          class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-56"
+        />
+      </div>
+
+      <div id="historyContainer" class="divide-y divide-slate-100">
+        <!-- Diisi oleh JavaScript -->
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // State aplikasi & URL Backend Google Apps Script
+    let currentType = 'qr';
+    let historyData = [];
+    const isAppsScript = typeof google !== 'undefined' && google.script && google.script.run;
+    const LOCAL_STORAGE_KEY = 'GAS_BARCODE_HISTORY_V1';
+    
+    // URL Web App Google Apps Script yang sudah Anda deploy
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbw3obdqI-8lohd_ThOXd5-2VH7HVbSZjuHZPCcwxTqzLJU9CefOookSwxSVVZqyy3OSow/exec';
+
+    // Inisialisasi saat halaman dibuka
+    window.onload = function() {
+      const statusEl = document.getElementById('storageStatus');
+      if (isAppsScript) {
+        statusEl.textContent = 'Terhubung ke Google Apps Script';
+      } else if (GAS_API_URL) {
+        statusEl.textContent = 'Terhubung ke Google Sheets';
+      } else {
+        statusEl.textContent = 'Siap digunakan (Penyimpanan Browser)';
+      }
+      renderLivePreview();
+      loadHistory();
+    };
+
+    // Normalisasi URL agar otomatis memiliki format valid saat di-scan
+    function normalizeUrl(raw) {
+      const val = (raw || '').trim();
+      if (!val) return 'https://contoh.com';
+      if (/^https?:\/\//i.test(val)) return val;
+      return 'https://' + val;
+    }
+
+    // Ganti tipe barcode (QR atau Barcode Garis 1D)
+    function setType(type) {
+      currentType = type;
+      const btnQr = document.getElementById('btnTypeQr');
+      const btn1d = document.getElementById('btnType1d');
+
+      if (type === 'qr') {
+        btnQr.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 transition';
+        btn1d.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition';
+      } else {
+        btn1d.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 transition';
+        btnQr.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition';
+      }
+      renderLivePreview();
+    }
+
+    // Render barcode ke preview layar
+    function renderLivePreview() {
+      const label = document.getElementById('labelInput').value.trim() || 'Preview Barcode';
+      const rawUrl = document.getElementById('urlInput').value.trim();
+      const finalUrl = normalizeUrl(rawUrl);
+
+      document.getElementById('previewTitle').textContent = label;
+      const linkEl = document.getElementById('previewUrl');
+      linkEl.textContent = finalUrl;
+      linkEl.href = finalUrl;
+
+      const qrCanvas = document.getElementById('qrCanvas');
+      const barcodeCanvas = document.getElementById('barcodeCanvas');
+
+      if (currentType === 'qr') {
+        qrCanvas.classList.remove('hidden');
+        barcodeCanvas.classList.add('hidden');
+        new QRious({
+          element: qrCanvas,
+          value: finalUrl,
+          size: 600,
+          level: 'H'
+        });
+      } else {
+        qrCanvas.classList.add('hidden');
+        barcodeCanvas.classList.remove('hidden');
+        try {
+          JsBarcode(barcodeCanvas, finalUrl, {
+            format: 'CODE128',
+            width: 3,
+            height: 120,
+            displayValue: false,
+            margin: 16
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    // Simpan barcode baru ke Google Sheets & LocalStorage
+    function handleSave(e) {
+      e.preventDefault();
+      const label = document.getElementById('labelInput').value.trim();
+      const url = normalizeUrl(document.getElementById('urlInput').value);
+
+      if (!label || !url) return;
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan...';
+
+      const now = new Date();
+      const formattedDate = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+      const newItem = {
+        id: String(Date.now()),
+        label: label,
+        url: url,
+        type: currentType,
+        createdAt: formattedDate
+      };
+
+      if (isAppsScript) {
+        google.script.run
+          .withSuccessHandler(function(saved) {
+            historyData.unshift(saved);
+            renderHistoryList();
+            resetBtn(btn);
+            showToast('Barcode berhasil disimpan');
+          })
+          .withFailureHandler(function(err) {
+            resetBtn(btn);
+            showToast(err.message || 'Gagal menyimpan');
+          })
+          .saveBarcode(newItem);
+      } else {
+        // Tampilkan langsung di browser
+        historyData.unshift(newItem);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+        renderHistoryList();
+        resetBtn(btn);
+        showToast('Barcode berhasil disimpan');
+
+        // Sinkronisasi background ke Google Sheets
+        if (GAS_API_URL) {
+          fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'save', payload: newItem })
+          }).catch(function(err) {
+            console.warn('Sync cloud:', err);
+          });
+        }
+      }
+    }
+
+    function resetBtn(btn) {
+      btn.disabled = false;
+      btn.textContent = 'Buat & Simpan';
+    }
+
+    // Muat data riwayat dari Google Sheets atau cache lokal
+    function loadHistory() {
+      if (isAppsScript) {
+        google.script.run
+          .withSuccessHandler(function(list) {
+            historyData = Array.isArray(list) ? list : [];
+            renderHistoryList();
+          })
+          .withFailureHandler(function() {
+            historyData = [];
+            renderHistoryList();
+          })
+          .getHistory();
+      } else if (GAS_API_URL) {
+        // Ambil data cache lokal terlebih dahulu agar cepat
+        const localCached = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (localCached) {
+          try { historyData = JSON.parse(localCached); } catch(e){}
+          renderHistoryList();
+        }
+
+        // Ambil data terbaru dari Google Sheets via GAS API
+        fetch(GAS_API_URL + '?action=list')
+          .then(function(res) { return res.json(); })
+          .then(function(list) {
+            if (Array.isArray(list) && list.length > 0) {
+              historyData = list;
+              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+              renderHistoryList();
+            }
+          })
+          .catch(function(err) {
+            console.warn('Gagal memuat dari Google Sheets, menggunakan data lokal:', err);
+          });
+      } else {
+        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+        historyData = raw ? JSON.parse(raw) : [];
+        renderHistoryList();
+      }
+    }
+
+    // Tampilkan daftar riwayat pada tampilan UI
+    function renderHistoryList() {
+      const container = document.getElementById('historyContainer');
+      const keyword = (document.getElementById('searchInput').value || '').toLowerCase();
+      document.getElementById('totalBadge').textContent = historyData.length + ' Tersimpan';
+
+      const filtered = historyData.filter(function(item) {
+        return (item.label || '').toLowerCase().includes(keyword) || (item.url || '').toLowerCase().includes(keyword);
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="py-8 text-center text-xs text-slate-400">Belum ada riwayat barcode.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(function(item) {
+        const safeLabel = escapeHtml(item.label);
+        const safeUrl = escapeHtml(item.url);
+        const badge = item.type === '1d' ? '1D' : 'QR';
+
+        return `
+          <div class="py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">${badge}</span>
+                <p class="text-sm font-semibold text-slate-800 truncate">${safeLabel}</p>
+                <span class="text-[11px] text-slate-400 hidden sm:inline">• ${escapeHtml(item.createdAt || '')}</span>
+              </div>
+              <a href="${safeUrl}" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block mt-0.5">${safeUrl}</a>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button onclick="selectFromHistory('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition">
+                Lihat
+              </button>
+              <button onclick="removeItem('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition">
+                Hapus
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Memilih item riwayat untuk di-preview kembali
+    function selectFromHistory(id) {
+      const found = historyData.find(function(x) { return String(x.id) === String(id); });
+      if (!found) return;
+      document.getElementById('labelInput').value = found.label;
+      document.getElementById('urlInput').value = found.url;
+      setType(found.type || 'qr');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('Menampilkan: ' + found.label);
+    }
+
+    // Menghapus item riwayat
+    function removeItem(id) {
+      historyData = historyData.filter(function(x) { return String(x.id) !== String(id); });
+      renderHistoryList();
+
+      if (isAppsScript) {
+        google.script.run
+          .withSuccessHandler(function() { showToast('Dihapus dari Google Sheets'); })
+          .deleteBarcode(id);
+      } else {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+        showToast('Dihapus');
+
+        if (GAS_API_URL) {
+          fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'delete', id: id })
+          }).catch(function(err) {
+            console.warn('Sync hapus:', err);
+          });
+        }
+      }
+    }
+
+    // Ekspor riwayat ke file JSON cadangan
+    function exportHistoryJson() {
+      if (historyData.length === 0) {
+        showToast('Belum ada data untuk diekspor');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(historyData, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'riwayat_barcode.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('Data berhasil diekspor');
+    }
+
+    // Impor riwayat dari file JSON
+    function importHistoryJson(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (Array.isArray(imported)) {
+            historyData = imported;
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+            renderHistoryList();
+            showToast('Data berhasil diimpor');
+          } else {
+            showToast('Format file tidak sesuai');
+          }
+        } catch (err) {
+          showToast('Gagal membaca file JSON');
+        }
+        event.target.value = '';
+      };
+      reader.readAsText(file);
+    }
+
+    // Unduh gambar PNG Ultra HD (Teks tajam & piksel barcode tidak buram)
+    function downloadCurrentBarcode() {
+      const label = document.getElementById('labelInput').value.trim() || 'BARCODE LINK';
+      const finalUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
+
+      const hdBarcodeCanvas = document.createElement('canvas');
+
+      if (currentType === 'qr') {
+        new QRious({
+          element: hdBarcodeCanvas,
+          value: finalUrl,
+          size: 1000,
+          level: 'H',
+          padding: 0
+        });
+      } else {
+        JsBarcode(hdBarcodeCanvas, finalUrl, {
+          format: 'CODE128',
+          width: 4,
+          height: 280,
+          displayValue: false,
+          margin: 20
+        });
+      }
+
+      const outCanvas = document.createElement('canvas');
+      const ctx = outCanvas.getContext('2d');
+
+      const padX = 120;
+      const padTop = 110;
+      const padBottom = 110;
+      const titleGap = 70;
+
+      const contentWidth = Math.max(hdBarcodeCanvas.width, 1000);
+      outCanvas.width = contentWidth + padX * 2;
+
+      const fontSize = 52;
+      ctx.font = 'bold ' + fontSize + 'px Inter, Arial, sans-serif';
+      const maxTextWidth = outCanvas.width - 160;
+      const lines = wrapTextLines(ctx, label, maxTextWidth);
+      const lineHeight = 66;
+      const totalTitleHeight = lines.length * lineHeight;
+
+      outCanvas.height = padTop + totalTitleHeight + titleGap + hdBarcodeCanvas.height + padBottom;
+
+      // Latar belakang putih
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+      // Nonaktifkan smoothing agar kotak QR tajam sempurna saat dicetak
+      ctx.imageSmoothingEnabled = false;
+
+      // Render teks judul
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold ' + fontSize + 'px Inter, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      lines.forEach(function(line, idx) {
+        ctx.fillText(line, outCanvas.width / 2, padTop + idx * lineHeight);
+      });
+
+      // Render barcode tepat di tengah
+      const barcodeX = Math.round((outCanvas.width - hdBarcodeCanvas.width) / 2);
+      const barcodeY = padTop + totalTitleHeight + titleGap;
+      ctx.drawImage(hdBarcodeCanvas, barcodeX, barcodeY);
+
+      const a = document.createElement('a');
+      a.download = label.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '_hd.png';
+      a.href = outCanvas.toDataURL('image/png', 1.0);
+      a.click();
+    }
+
+    function wrapTextLines(ctx, text, maxWidth) {
+      const words = text.split(' ');
+      const lines = [];
+      let currentLine = words[0] || '';
+
+      for (let i = 1; i < words.length; i++) {
+        const word = words[i];
+        const width = ctx.measureText(currentLine + ' ' + word).width;
+        if (width < maxWidth) {
+          currentLine += ' ' + word;
+        } else {
+          lines.push(currentLine);
+          currentLine = word;
+        }
+      }
+      lines.push(currentLine);
+      return lines;
+    }
+
+    function copyCurrentLink() {
+      const url = normalizeUrl(document.getElementById('urlInput').value);
+      const temp = document.createElement('textarea');
+      temp.value = url;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+      showToast('Link disalin ke clipboard');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(function() {
+        t.classList.add('hidden');
+      }, 2200);
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
