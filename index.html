@@ -37,7 +37,12 @@
         <canvas id="viewModalQrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
         <canvas id="viewModalBarcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
 
-        <a id="viewModalUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block"></a>
+        <div class="mt-3 w-full bg-white p-2.5 rounded-xl border border-slate-200 text-left space-y-1">
+          <div class="text-[10px] text-slate-400 font-medium">Link Tertanam di Barcode:</div>
+          <div id="viewModalEncodedUrl" class="text-[11px] font-mono text-slate-600 truncate bg-slate-50 px-2 py-1 rounded border border-slate-100"></div>
+          <div class="text-[10px] text-slate-400 font-medium pt-1">Tujuan Akhir:</div>
+          <a id="viewModalUrl" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block font-semibold"></a>
+        </div>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
@@ -258,6 +263,7 @@
     let currentType = 'qr';
     let currentMode = 'dynamic'; // 'dynamic' (bisa diedit walau tercetak) atau 'static'
     let currentActiveItem = null;
+    let pendingFormId = 'qr_' + Date.now();
     let modalActiveItem = null;
     let pendingDeleteId = null;
     let historyData = [];
@@ -280,6 +286,37 @@
       renderLivePreview();
       loadHistory();
     };
+
+    // Fungsi komunikasi sinkronisasi ke Google Apps Script yang aman dari CORS
+    async function syncToGAS(action, params) {
+      if (!GAS_API_URL) return null;
+      try {
+        const queryParams = new URLSearchParams({
+          action: action,
+          _t: Date.now() // Cache-buster
+        });
+        if (params) {
+          for (const k in params) {
+            if (params.hasOwnProperty(k)) {
+              queryParams.append(k, params[k]);
+            }
+          }
+        }
+        const res = await fetch(GAS_API_URL + '?' + queryParams.toString());
+        return await res.json();
+      } catch (err) {
+        console.warn('Sync GET gagal, mencoba fallback POST:', err);
+        try {
+          await fetch(GAS_API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: action, payload: params })
+          });
+        } catch (e2) {}
+        return null;
+      }
+    }
 
     function normalizeUrl(raw) {
       const val = (raw || '').trim();
@@ -322,7 +359,7 @@
       renderLivePreview();
     }
 
-    // Mendapatkan URL yang di-encode ke barcode (Jika Dinamis: pakai redirect Apps Script)
+    // Mendapatkan URL yang di-encode ke barcode
     function getBarcodeEncodedValue(itemId, targetUrl, mode) {
       if (mode === 'dynamic' && itemId && GAS_API_URL) {
         return GAS_API_URL + '?r=' + itemId;
@@ -340,9 +377,9 @@
       linkEl.textContent = finalUrl;
       linkEl.href = finalUrl;
 
-      // Nilai yang dirender
-      const activeId = currentActiveItem ? currentActiveItem.id : 'preview';
-      const encodedValue = (currentMode === 'dynamic' && currentActiveItem)
+      // Gunakan ID aktif jika sudah disimpan, atau ID sesi baru
+      const activeId = currentActiveItem ? currentActiveItem.id : pendingFormId;
+      const encodedValue = (currentMode === 'dynamic')
         ? getBarcodeEncodedValue(activeId, finalUrl, 'dynamic')
         : finalUrl;
 
@@ -375,8 +412,8 @@
       }
     }
 
-    function handleSave(e) {
-      e.preventDefault();
+    async function handleSave(e) {
+      if (e) e.preventDefault();
       const label = document.getElementById('labelInput').value.trim();
       const url = normalizeUrl(document.getElementById('urlInput').value);
 
@@ -384,13 +421,13 @@
 
       const btn = document.getElementById('submitBtn');
       btn.disabled = true;
-      btn.textContent = 'Menyimpan...';
+      btn.textContent = 'Menyimpan ke Google Sheets...';
 
       const now = new Date();
       const formattedDate = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
       const newItem = {
-        id: String(Date.now()),
+        id: pendingFormId,
         label: label,
         url: url,
         type: currentType,
@@ -403,11 +440,7 @@
       if (isAppsScript) {
         google.script.run
           .withSuccessHandler(function(saved) {
-            historyData.unshift(saved);
-            renderHistoryList();
-            resetBtn(btn);
-            renderLivePreview();
-            showToast('Barcode berhasil disimpan');
+            finishSave(saved || newItem, btn);
           })
           .withFailureHandler(function(err) {
             resetBtn(btn);
@@ -415,23 +448,20 @@
           })
           .saveBarcode(newItem);
       } else {
-        historyData.unshift(newItem);
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
-        renderHistoryList();
-        resetBtn(btn);
-        renderLivePreview();
-        showToast('Barcode berhasil disimpan');
-
-        if (GAS_API_URL) {
-          fetch(GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'save', payload: newItem })
-          }).catch(function(err) {
-            console.warn('Sync cloud:', err);
-          });
-        }
+        await syncToGAS('save', newItem);
+        finishSave(newItem, btn);
       }
+    }
+
+    function finishSave(item, btn) {
+      historyData.unshift(item);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+      renderHistoryList();
+      resetBtn(btn);
+      renderLivePreview();
+      // Siapkan ID baru untuk form berikutnya agar tidak tertukar
+      pendingFormId = 'qr_' + Date.now();
+      showToast('Barcode berhasil dibuat & tersimpan!');
     }
 
     function resetBtn(btn) {
@@ -454,8 +484,8 @@
       document.getElementById('editModal').classList.add('hidden');
     }
 
-    // Simpan hasil edit link (Otomatis memengaruhi barcode yang sudah tercetak!)
-    function handleUpdateBarcode(e) {
+    // Simpan hasil edit link (Dipastikan tersimpan ke Google Sheets saat itu juga!)
+    async function handleUpdateBarcode(e) {
       e.preventDefault();
       const id = document.getElementById('editId').value;
       const newLabel = document.getElementById('editLabel').value.trim();
@@ -464,12 +494,12 @@
       const item = historyData.find(function(x) { return String(x.id) === String(id); });
       if (!item) return;
 
-      item.label = newLabel;
-      item.url = newUrl;
-
       const editBtn = document.getElementById('editSubmitBtn');
       editBtn.disabled = true;
-      editBtn.textContent = 'Menyimpan...';
+      editBtn.textContent = 'Menyimpan ke Sheets...';
+
+      item.label = newLabel;
+      item.url = newUrl;
 
       if (isAppsScript) {
         google.script.run
@@ -478,14 +508,8 @@
           })
           .updateBarcode({ id: id, label: newLabel, url: newUrl });
       } else {
+        await syncToGAS('update', { id: id, label: newLabel, url: newUrl });
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
-        if (GAS_API_URL) {
-          fetch(GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'update', payload: { id: id, label: newLabel, url: newUrl } })
-          }).catch(function(err) { console.warn(err); });
-        }
         finishUpdate(item);
       }
     }
@@ -496,14 +520,11 @@
       closeEditModal();
       renderHistoryList();
 
-      if (currentActiveItem && currentActiveItem.id === item.id) {
-        currentActiveItem = item;
-        document.getElementById('labelInput').value = item.label;
-        document.getElementById('urlInput').value = item.url;
-        renderLivePreview();
+      if (modalActiveItem && String(modalActiveItem.id) === String(item.id)) {
+        openViewModal(item.id);
       }
 
-      showToast('Link berhasil diubah! Barcode tercetak otomatis mengarah ke link baru.');
+      showToast('Link di Google Sheets berhasil diubah! Barcode fisik otomatis mengarah ke link baru.');
     }
 
     function loadHistory() {
@@ -521,7 +542,7 @@
           renderHistoryList();
         }
 
-        fetch(GAS_API_URL + '?action=list')
+        fetch(GAS_API_URL + '?action=list&_t=' + Date.now())
           .then(function(res) { return res.json(); })
           .then(function(list) {
             if (Array.isArray(list) && list.length > 0) {
@@ -617,6 +638,8 @@
         ? (GAS_API_URL + '?r=' + found.id)
         : found.url;
 
+      document.getElementById('viewModalEncodedUrl').textContent = encodedValue;
+
       const qrCanvas = document.getElementById('viewModalQrCanvas');
       const barcodeCanvas = document.getElementById('viewModalBarcodeCanvas');
 
@@ -674,25 +697,19 @@
       document.getElementById('deleteModal').classList.add('hidden');
     }
 
-    function confirmDelete() {
+    async function confirmDelete() {
       if (!pendingDeleteId) return;
       const id = pendingDeleteId;
       closeDeleteModal();
 
       historyData = historyData.filter(function(x) { return String(x.id) !== String(id); });
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
       renderHistoryList();
 
       if (isAppsScript) {
         google.script.run.deleteBarcode(id);
       } else {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
-        if (GAS_API_URL) {
-          fetch(GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'delete', id: id })
-          }).catch(function(err) { console.warn(err); });
-        }
+        await syncToGAS('delete', { id: id });
       }
       showToast('Barcode dihapus');
     }
@@ -733,10 +750,16 @@
     }
 
     // Unduh gambar Ultra HD (1200px+)
-    function downloadCurrentBarcode() {
+    async function downloadCurrentBarcode() {
       const label = document.getElementById('labelInput').value.trim() || 'BARCODE LINK';
       const targetUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
-      const activeId = currentActiveItem ? currentActiveItem.id : String(Date.now());
+      
+      // Jika belum pernah diklik simpan, simpan otomatis agar ID terdaftar resmi di Google Sheets
+      if (!currentActiveItem) {
+        await handleSave();
+      }
+
+      const activeId = currentActiveItem ? currentActiveItem.id : pendingFormId;
       generateAndDownloadBarcode(label, targetUrl, activeId, currentType, currentMode);
     }
 
