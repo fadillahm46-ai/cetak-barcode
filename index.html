@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Barcode Link Generator</title>
+  <title>Barcode Link Generator (HD)</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- QRious (QR Barcode untuk Scan Link HP) -->
+  <!-- QRious (QR Barcode Generator) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
   <!-- JsBarcode (Barcode Garis 1D) -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
@@ -20,23 +20,50 @@
   <!-- Toast Notifikasi -->
   <div id="toast" class="fixed top-4 right-4 z-50 hidden bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg transition-all"></div>
 
-  <div class="max-w-4xl mx-auto space-y-5">
-    
-    <!-- Header Singkat -->
-    <header class="bg-white rounded-2xl px-5 py-4 shadow-sm border border-slate-200 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg">
-          ⌗
+  <!-- Modal Edit Barcode Tercetak -->
+  <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 border border-slate-100">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div>
+          <h3 class="font-bold text-sm text-slate-900">Ubah Link Barcode</h3>
+          <p class="text-[11px] text-emerald-600 font-medium">Barcode fisik yang sudah dicetak otomatis ikut berubah!</p>
+        </div>
+        <button onclick="closeEditModal()" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
+      </div>
+      <form id="editForm" onsubmit="handleUpdateBarcode(event)" class="space-y-3">
+        <input type="hidden" id="editId" />
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Nama / Label</label>
+          <input type="text" id="editLabel" required class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
         </div>
         <div>
-          <h1 class="font-bold text-base text-slate-900">Barcode Link</h1>
-          <p class="text-xs text-emerald-600 font-medium" id="storageStatus">Menghubungkan ke Google Sheets...</p>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Link Tujuan Baru</label>
+          <input type="text" id="editUrl" required placeholder="https://..." class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+          <p class="text-[11px] text-slate-400 mt-1">Tempel link baru di sini. Saat barcode fisik di-scan kembali, akan langsung membuka link ini.</p>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="closeEditModal()" class="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition">Batal</button>
+          <button type="submit" id="editSubmitBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition">Simpan Perubahan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="max-w-4xl mx-auto space-y-5">
+    
+    <!-- Header -->
+    <header class="bg-white rounded-2xl px-5 py-4 shadow-sm border border-slate-200 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg">⌗</div>
+        <div>
+          <h1 class="font-bold text-base text-slate-900">Barcode Link Generator</h1>
+          <p class="text-xs text-emerald-600 font-medium" id="storageStatus">Terhubung ke Google Sheets</p>
         </div>
       </div>
       <span id="totalBadge" class="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">0 Tersimpan</span>
     </header>
 
-    <!-- Grid Utama: Form & Preview -->
+    <!-- Grid Form & Preview -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
       
       <!-- Form Input -->
@@ -60,10 +87,35 @@
               type="text" 
               id="urlInput" 
               required
-              placeholder="https://contoh.com" 
+              placeholder="https://contoh.com atau link Google Form" 
               oninput="renderLivePreview()"
               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+          </div>
+
+          <!-- Pilihan Mode Link: Dinamis (Bisa diedit) vs Statis -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Kemampuan Edit Barcode</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button 
+                type="button" 
+                id="btnModeDynamic"
+                onclick="setLinkMode('dynamic')"
+                class="py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col">
+                <span class="text-xs font-bold flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full bg-emerald-500"></span> QR Dinamis
+                </span>
+                <span class="text-[10px] text-indigo-700 mt-0.5">Bisa diedit kapan saja meski sudah dicetak</span>
+              </button>
+              <button 
+                type="button" 
+                id="btnModeStatic"
+                onclick="setLinkMode('static')"
+                class="py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col">
+                <span class="text-xs font-bold">QR Statis</span>
+                <span class="text-[10px] text-slate-400 mt-0.5">Link tertanam mati (tidak bisa diedit)</span>
+              </button>
+            </div>
           </div>
 
           <div>
@@ -90,20 +142,18 @@
             type="submit" 
             id="submitBtn"
             class="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-semibold text-sm py-3 rounded-xl shadow-sm transition">
-            Buat & Simpan
+            Buat & Simpan Barcode
           </button>
         </form>
       </div>
 
-      <!-- Hasil Barcode -->
+      <!-- Preview -->
       <div class="md:col-span-5 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col items-center justify-between text-center">
         <div id="previewCard" class="w-full bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col items-center justify-center min-h-[220px]">
+          <span id="previewBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 mb-2">QR Dinamis (Bisa Diedit)</span>
           <p id="previewTitle" class="text-sm font-bold text-slate-800 mb-2 truncate max-w-full">Preview Barcode</p>
           
-          <!-- Canvas QR (Resolusi tinggi, ukuran tampilan diatur CSS) -->
           <canvas id="qrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
-          
-          <!-- Canvas 1D Barcode -->
           <canvas id="barcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
 
           <a id="previewUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block">
@@ -129,21 +179,13 @@
 
     </div>
 
-    <!-- Riwayat Penyimpanan -->
+    <!-- Riwayat -->
     <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div class="flex items-center gap-2">
           <h2 class="font-bold text-sm text-slate-900">Riwayat Barcode</h2>
-          <button 
-            type="button" 
-            onclick="exportHistoryJson()" 
-            title="Unduh cadangan riwayat"
-            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition">
-            Ekspor
-          </button>
-          <label 
-            title="Muat cadangan riwayat"
-            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition cursor-pointer">
+          <button type="button" onclick="exportHistoryJson()" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition">Ekspor</button>
+          <label class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-semibold transition cursor-pointer">
             Impor
             <input type="file" id="importFileInput" accept=".json" onchange="importHistoryJson(event)" class="hidden" />
           </label>
@@ -153,28 +195,27 @@
           id="searchInput" 
           oninput="renderHistoryList()" 
           placeholder="Cari nama atau link..." 
-          class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-56"
+          class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-none w-full sm:w-56"
         />
       </div>
 
-      <div id="historyContainer" class="divide-y divide-slate-100">
-        <!-- Diisi oleh JavaScript -->
-      </div>
+      <div id="historyContainer" class="divide-y divide-slate-100"></div>
     </section>
 
   </div>
 
   <script>
-    // State aplikasi & URL Backend Google Apps Script
     let currentType = 'qr';
+    let currentMode = 'dynamic'; // 'dynamic' (bisa diedit walau tercetak) atau 'static'
+    let currentActiveItem = null;
     let historyData = [];
+
     const isAppsScript = typeof google !== 'undefined' && google.script && google.script.run;
-    const LOCAL_STORAGE_KEY = 'GAS_BARCODE_HISTORY_V1';
+    const LOCAL_STORAGE_KEY = 'GAS_BARCODE_HISTORY_V2';
     
-    // URL Web App Google Apps Script yang sudah Anda deploy
+    // Deployment URL Google Apps Script Anda
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbw3obdqI-8lohd_ThOXd5-2VH7HVbSZjuHZPCcwxTqzLJU9CefOookSwxSVVZqyy3OSow/exec';
 
-    // Inisialisasi saat halaman dibuka
     window.onload = function() {
       const statusEl = document.getElementById('storageStatus');
       if (isAppsScript) {
@@ -182,13 +223,12 @@
       } else if (GAS_API_URL) {
         statusEl.textContent = 'Terhubung ke Google Sheets';
       } else {
-        statusEl.textContent = 'Siap digunakan (Penyimpanan Browser)';
+        statusEl.textContent = 'Penyimpanan Browser';
       }
       renderLivePreview();
       loadHistory();
     };
 
-    // Normalisasi URL agar otomatis memiliki format valid saat di-scan
     function normalizeUrl(raw) {
       const val = (raw || '').trim();
       if (!val) return 'https://contoh.com';
@@ -196,12 +236,10 @@
       return 'https://' + val;
     }
 
-    // Ganti tipe barcode (QR atau Barcode Garis 1D)
     function setType(type) {
       currentType = type;
       const btnQr = document.getElementById('btnTypeQr');
       const btn1d = document.getElementById('btnType1d');
-
       if (type === 'qr') {
         btnQr.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 transition';
         btn1d.className = 'py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition';
@@ -212,7 +250,34 @@
       renderLivePreview();
     }
 
-    // Render barcode ke preview layar
+    function setLinkMode(mode) {
+      currentMode = mode;
+      const btnDynamic = document.getElementById('btnModeDynamic');
+      const btnStatic = document.getElementById('btnModeStatic');
+      const badge = document.getElementById('previewBadge');
+
+      if (mode === 'dynamic') {
+        btnDynamic.className = 'py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
+        btnStatic.className = 'py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
+        badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 mb-2';
+        badge.textContent = 'QR Dinamis (Bisa Diedit)';
+      } else {
+        btnStatic.className = 'py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
+        btnDynamic.className = 'py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
+        badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 mb-2';
+        badge.textContent = 'QR Statis (Tidak Bisa Diedit)';
+      }
+      renderLivePreview();
+    }
+
+    // Mendapatkan URL yang di-encode ke barcode (Jika Dinamis: pakai redirect Apps Script)
+    function getBarcodeEncodedValue(itemId, targetUrl, mode) {
+      if (mode === 'dynamic' && itemId && GAS_API_URL) {
+        return GAS_API_URL + '?r=' + itemId;
+      }
+      return targetUrl;
+    }
+
     function renderLivePreview() {
       const label = document.getElementById('labelInput').value.trim() || 'Preview Barcode';
       const rawUrl = document.getElementById('urlInput').value.trim();
@@ -223,6 +288,12 @@
       linkEl.textContent = finalUrl;
       linkEl.href = finalUrl;
 
+      // Nilai yang dirender
+      const activeId = currentActiveItem ? currentActiveItem.id : 'preview';
+      const encodedValue = (currentMode === 'dynamic' && currentActiveItem)
+        ? getBarcodeEncodedValue(activeId, finalUrl, 'dynamic')
+        : finalUrl;
+
       const qrCanvas = document.getElementById('qrCanvas');
       const barcodeCanvas = document.getElementById('barcodeCanvas');
 
@@ -231,7 +302,7 @@
         barcodeCanvas.classList.add('hidden');
         new QRious({
           element: qrCanvas,
-          value: finalUrl,
+          value: encodedValue,
           size: 600,
           level: 'H'
         });
@@ -239,7 +310,7 @@
         qrCanvas.classList.add('hidden');
         barcodeCanvas.classList.remove('hidden');
         try {
-          JsBarcode(barcodeCanvas, finalUrl, {
+          JsBarcode(barcodeCanvas, encodedValue, {
             format: 'CODE128',
             width: 3,
             height: 120,
@@ -252,7 +323,6 @@
       }
     }
 
-    // Simpan barcode baru ke Google Sheets & LocalStorage
     function handleSave(e) {
       e.preventDefault();
       const label = document.getElementById('labelInput').value.trim();
@@ -272,8 +342,11 @@
         label: label,
         url: url,
         type: currentType,
+        mode: currentMode,
         createdAt: formattedDate
       };
+
+      currentActiveItem = newItem;
 
       if (isAppsScript) {
         google.script.run
@@ -281,6 +354,7 @@
             historyData.unshift(saved);
             renderHistoryList();
             resetBtn(btn);
+            renderLivePreview();
             showToast('Barcode berhasil disimpan');
           })
           .withFailureHandler(function(err) {
@@ -289,14 +363,13 @@
           })
           .saveBarcode(newItem);
       } else {
-        // Tampilkan langsung di browser
         historyData.unshift(newItem);
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
         renderHistoryList();
         resetBtn(btn);
+        renderLivePreview();
         showToast('Barcode berhasil disimpan');
 
-        // Sinkronisasi background ke Google Sheets
         if (GAS_API_URL) {
           fetch(GAS_API_URL, {
             method: 'POST',
@@ -311,10 +384,76 @@
 
     function resetBtn(btn) {
       btn.disabled = false;
-      btn.textContent = 'Buat & Simpan';
+      btn.textContent = 'Buat & Simpan Barcode';
     }
 
-    // Muat data riwayat dari Google Sheets atau cache lokal
+    // Modal Edit Barcode
+    function openEditModal(id) {
+      const item = historyData.find(function(x) { return String(x.id) === String(id); });
+      if (!item) return;
+
+      document.getElementById('editId').value = item.id;
+      document.getElementById('editLabel').value = item.label;
+      document.getElementById('editUrl').value = item.url;
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.add('hidden');
+    }
+
+    // Simpan hasil edit link (Otomatis memengaruhi barcode yang sudah tercetak!)
+    function handleUpdateBarcode(e) {
+      e.preventDefault();
+      const id = document.getElementById('editId').value;
+      const newLabel = document.getElementById('editLabel').value.trim();
+      const newUrl = normalizeUrl(document.getElementById('editUrl').value.trim());
+
+      const item = historyData.find(function(x) { return String(x.id) === String(id); });
+      if (!item) return;
+
+      item.label = newLabel;
+      item.url = newUrl;
+
+      const editBtn = document.getElementById('editSubmitBtn');
+      editBtn.disabled = true;
+      editBtn.textContent = 'Menyimpan...';
+
+      if (isAppsScript) {
+        google.script.run
+          .withSuccessHandler(function() {
+            finishUpdate(item);
+          })
+          .updateBarcode({ id: id, label: newLabel, url: newUrl });
+      } else {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
+        if (GAS_API_URL) {
+          fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'update', payload: { id: id, label: newLabel, url: newUrl } })
+          }).catch(function(err) { console.warn(err); });
+        }
+        finishUpdate(item);
+      }
+    }
+
+    function finishUpdate(item) {
+      document.getElementById('editSubmitBtn').disabled = false;
+      document.getElementById('editSubmitBtn').textContent = 'Simpan Perubahan';
+      closeEditModal();
+      renderHistoryList();
+
+      if (currentActiveItem && currentActiveItem.id === item.id) {
+        currentActiveItem = item;
+        document.getElementById('labelInput').value = item.label;
+        document.getElementById('urlInput').value = item.url;
+        renderLivePreview();
+      }
+
+      showToast('Link berhasil diubah! Barcode tercetak otomatis mengarah ke link baru.');
+    }
+
     function loadHistory() {
       if (isAppsScript) {
         google.script.run
@@ -322,20 +461,14 @@
             historyData = Array.isArray(list) ? list : [];
             renderHistoryList();
           })
-          .withFailureHandler(function() {
-            historyData = [];
-            renderHistoryList();
-          })
           .getHistory();
       } else if (GAS_API_URL) {
-        // Ambil data cache lokal terlebih dahulu agar cepat
         const localCached = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (localCached) {
           try { historyData = JSON.parse(localCached); } catch(e){}
           renderHistoryList();
         }
 
-        // Ambil data terbaru dari Google Sheets via GAS API
         fetch(GAS_API_URL + '?action=list')
           .then(function(res) { return res.json(); })
           .then(function(list) {
@@ -346,7 +479,7 @@
             }
           })
           .catch(function(err) {
-            console.warn('Gagal memuat dari Google Sheets, menggunakan data lokal:', err);
+            console.warn('Gagal memuat dari Google Sheets:', err);
           });
       } else {
         const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -355,7 +488,6 @@
       }
     }
 
-    // Tampilkan daftar riwayat pada tampilan UI
     function renderHistoryList() {
       const container = document.getElementById('historyContainer');
       const keyword = (document.getElementById('searchInput').value || '').toLowerCase();
@@ -373,21 +505,29 @@
       container.innerHTML = filtered.map(function(item) {
         const safeLabel = escapeHtml(item.label);
         const safeUrl = escapeHtml(item.url);
-        const badge = item.type === '1d' ? '1D' : 'QR';
+        const typeBadge = item.type === '1d' ? '1D' : 'QR';
+        const isDynamic = (item.mode !== 'static');
+        const modeBadge = isDynamic 
+          ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">Dinamis</span>'
+          : '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Statis</span>';
 
         return `
-          <div class="py-3 flex items-center justify-between gap-3">
+          <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">${badge}</span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">${typeBadge}</span>
+                ${modeBadge}
                 <p class="text-sm font-semibold text-slate-800 truncate">${safeLabel}</p>
-                <span class="text-[11px] text-slate-400 hidden sm:inline">• ${escapeHtml(item.createdAt || '')}</span>
+                <span class="text-[11px] text-slate-400">• ${escapeHtml(item.createdAt || '')}</span>
               </div>
               <a href="${safeUrl}" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block mt-0.5">${safeUrl}</a>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <button onclick="selectFromHistory('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition">
                 Lihat
+              </button>
+              <button onclick="openEditModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition" title="Ubah link barcode ini">
+                Edit Link
               </button>
               <button onclick="removeItem('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition">
                 Hapus
@@ -398,43 +538,38 @@
       }).join('');
     }
 
-    // Memilih item riwayat untuk di-preview kembali
     function selectFromHistory(id) {
       const found = historyData.find(function(x) { return String(x.id) === String(id); });
       if (!found) return;
+      currentActiveItem = found;
       document.getElementById('labelInput').value = found.label;
       document.getElementById('urlInput').value = found.url;
       setType(found.type || 'qr');
+      setLinkMode(found.mode || 'dynamic');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       showToast('Menampilkan: ' + found.label);
     }
 
-    // Menghapus item riwayat
     function removeItem(id) {
+      if (!confirm('Yakin ingin menghapus barcode ini?')) return;
       historyData = historyData.filter(function(x) { return String(x.id) !== String(id); });
       renderHistoryList();
 
       if (isAppsScript) {
-        google.script.run
-          .withSuccessHandler(function() { showToast('Dihapus dari Google Sheets'); })
-          .deleteBarcode(id);
+        google.script.run.deleteBarcode(id);
       } else {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
-        showToast('Dihapus');
-
         if (GAS_API_URL) {
           fetch(GAS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'delete', id: id })
-          }).catch(function(err) {
-            console.warn('Sync hapus:', err);
-          });
+          }).catch(function(err) { console.warn(err); });
         }
       }
+      showToast('Barcode dihapus');
     }
 
-    // Ekspor riwayat ke file JSON cadangan
     function exportHistoryJson() {
       if (historyData.length === 0) {
         showToast('Belum ada data untuk diekspor');
@@ -449,7 +584,6 @@
       showToast('Data berhasil diekspor');
     }
 
-    // Impor riwayat dari file JSON
     function importHistoryJson(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -462,8 +596,6 @@
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(historyData));
             renderHistoryList();
             showToast('Data berhasil diimpor');
-          } else {
-            showToast('Format file tidak sesuai');
           }
         } catch (err) {
           showToast('Gagal membaca file JSON');
@@ -473,23 +605,26 @@
       reader.readAsText(file);
     }
 
-    // Unduh gambar PNG Ultra HD (Teks tajam & piksel barcode tidak buram)
+    // Unduh gambar Ultra HD (1200px+)
     function downloadCurrentBarcode() {
       const label = document.getElementById('labelInput').value.trim() || 'BARCODE LINK';
-      const finalUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
+      const targetUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
+
+      const activeId = currentActiveItem ? currentActiveItem.id : String(Date.now());
+      const encodedValue = getBarcodeEncodedValue(activeId, targetUrl, currentMode);
 
       const hdBarcodeCanvas = document.createElement('canvas');
 
       if (currentType === 'qr') {
         new QRious({
           element: hdBarcodeCanvas,
-          value: finalUrl,
+          value: encodedValue,
           size: 1000,
           level: 'H',
           padding: 0
         });
       } else {
-        JsBarcode(hdBarcodeCanvas, finalUrl, {
+        JsBarcode(hdBarcodeCanvas, encodedValue, {
           format: 'CODE128',
           width: 4,
           height: 280,
@@ -518,14 +653,10 @@
 
       outCanvas.height = padTop + totalTitleHeight + titleGap + hdBarcodeCanvas.height + padBottom;
 
-      // Latar belakang putih
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
-
-      // Nonaktifkan smoothing agar kotak QR tajam sempurna saat dicetak
       ctx.imageSmoothingEnabled = false;
 
-      // Render teks judul
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold ' + fontSize + 'px Inter, Arial, sans-serif';
       ctx.textAlign = 'center';
@@ -535,7 +666,6 @@
         ctx.fillText(line, outCanvas.width / 2, padTop + idx * lineHeight);
       });
 
-      // Render barcode tepat di tengah
       const barcodeX = Math.round((outCanvas.width - hdBarcodeCanvas.width) / 2);
       const barcodeY = padTop + totalTitleHeight + titleGap;
       ctx.drawImage(hdBarcodeCanvas, barcodeX, barcodeY);
@@ -583,7 +713,7 @@
       clearTimeout(window._toastTimer);
       window._toastTimer = setTimeout(function() {
         t.classList.add('hidden');
-      }, 2200);
+      }, 2400);
     }
 
     function escapeHtml(str) {
