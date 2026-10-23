@@ -1,5 +1,12 @@
 /**
- * Menampilkan halaman utama Web App atau mengembalikan JSON jika dipanggil dari Vercel (?action=list)
+ * Konfigurasi Spreadsheet & Script Google Apps Script
+ * Script ID: 17vmBd8EUVLSCBKf-EBvCkB7U-FQDWHw8av-h9bFyIWPv1WjUm_k9G8pI
+ */
+var SPREADSHEET_ID = '1Zc_xxMda_sUrmr-MxZdmCmAN31liNeCNw7shUQTLmg8';
+var SHEET_NAME = 'History';
+
+/**
+ * Menampilkan halaman utama Web App atau mengembalikan data JSON jika dipanggil dari Vercel (?action=list)
  */
 function doGet(e) {
   if (e && e.parameter && e.parameter.action === 'list') {
@@ -15,13 +22,16 @@ function doGet(e) {
 }
 
 /**
- * Endpoint API POST untuk menerima simpan/hapus dari Vercel
+ * Endpoint API POST untuk menerima aksi simpan & hapus dari Vercel
  */
 function doPost(e) {
   try {
-    var body = JSON.parse(e.postData.contents || '{}');
-    var result = {};
+    var body = {};
+    if (e && e.postData && e.postData.contents) {
+      body = JSON.parse(e.postData.contents);
+    }
 
+    var result = {};
     if (body.action === 'save') {
       result = saveBarcode(body.payload || {});
     } else if (body.action === 'delete') {
@@ -37,7 +47,41 @@ function doPost(e) {
 }
 
 /**
- * Menyimpan data barcode baru ke riwayat
+ * Mengambil seluruh daftar riwayat barcode dari Google Sheets
+ */
+function getHistory() {
+  try {
+    var sheet = getOrCreateSheet_();
+    if (!sheet) {
+      var raw = PropertiesService.getScriptProperties().getProperty('BARCODE_HISTORY');
+      return raw ? JSON.parse(raw) : [];
+    }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return [];
+
+    var values = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+    var list = [];
+
+    // Urutkan dari yang terbaru (bawah sheet ke atas)
+    for (var i = values.length - 1; i >= 0; i--) {
+      list.push({
+        id: String(values[i][0]),
+        label: String(values[i][1] || ''),
+        url: String(values[i][2] || ''),
+        type: String(values[i][3] || 'qr'),
+        createdAt: String(values[i][4] || '')
+      });
+    }
+
+    return list;
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Menyimpan data barcode baru ke baris Google Sheets
  */
 function saveBarcode(payload) {
   try {
@@ -46,7 +90,7 @@ function saveBarcode(payload) {
       label: (payload.label || 'Tanpa Nama').trim(),
       url: (payload.url || '').trim(),
       type: payload.type || 'qr',
-      createdAt: payload.createdAt || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+      createdAt: payload.createdAt || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Jakarta', 'dd/MM/yyyy HH:mm')
     };
 
     var sheet = getOrCreateSheet_();
@@ -65,7 +109,7 @@ function saveBarcode(payload) {
 }
 
 /**
- * Menghapus satu item barcode berdasarkan ID
+ * Menghapus barcode berdasarkan ID dari Google Sheets
  */
 function deleteBarcode(id) {
   try {
@@ -96,20 +140,28 @@ function deleteBarcode(id) {
 }
 
 /**
- * Helper: Mengambil atau membuat sheet 'History' jika terhubung dengan Google Sheets
+ * Helper: Membuka Google Sheets menggunakan ID yang telah ditentukan
  */
 function getOrCreateSheet_() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss;
+    if (SPREADSHEET_ID && SPREADSHEET_ID.trim() !== '') {
+      ss = SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+    } else {
+      ss = SpreadsheetApp.getActiveSpreadsheet();
+    }
+
     if (!ss) return null;
-    var sheet = ss.getSheetByName('History');
+
+    var sheet = ss.getSheetByName(SHEET_NAME);
     if (!sheet) {
-      sheet = ss.insertSheet('History');
+      sheet = ss.insertSheet(SHEET_NAME);
       sheet.appendRow(['ID', 'Nama', 'Link URL', 'Tipe', 'Tanggal']);
       sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
     }
     return sheet;
   } catch (e) {
+    console.error('Error getOrCreateSheet_: ' + e.message);
     return null;
   }
 }
