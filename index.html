@@ -20,6 +20,56 @@
   <!-- Toast Notifikasi -->
   <div id="toast" class="fixed top-4 right-4 z-50 hidden bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg transition-all"></div>
 
+  <!-- Modal Lihat Barcode (Pop-up) -->
+  <div id="viewModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 border border-slate-100 text-center relative">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center gap-1.5">
+          <span id="viewModalTypeBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">QR</span>
+          <span id="viewModalModeBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Dinamis</span>
+        </div>
+        <button onclick="closeViewModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1 leading-none">&times;</button>
+      </div>
+
+      <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col items-center justify-center min-h-[220px]">
+        <h3 id="viewModalTitle" class="text-sm font-bold text-slate-800 mb-2 truncate max-w-full"></h3>
+        
+        <canvas id="viewModalQrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
+        <canvas id="viewModalBarcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
+
+        <a id="viewModalUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block"></a>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" onclick="downloadModalBarcode()" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition">
+          Unduh PNG (HD)
+        </button>
+        <button type="button" onclick="copyModalLink()" class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">
+          Salin Link
+        </button>
+      </div>
+
+      <button type="button" onclick="closeViewModal()" class="w-full py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">
+        Tutup
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal Konfirmasi Hapus -->
+  <div id="deleteModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl space-y-4 border border-slate-100 text-center">
+      <div class="w-11 h-11 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-lg font-bold">!</div>
+      <div>
+        <h3 class="font-bold text-sm text-slate-900">Hapus Barcode?</h3>
+        <p class="text-xs text-slate-500 mt-1">Barcode yang dihapus tidak dapat dipulihkan.</p>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" onclick="closeDeleteModal()" class="flex-1 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition">Batal</button>
+        <button type="button" onclick="confirmDelete()" class="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition">Hapus</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Edit Barcode Tercetak -->
   <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 border border-slate-100">
@@ -208,6 +258,8 @@
     let currentType = 'qr';
     let currentMode = 'dynamic'; // 'dynamic' (bisa diedit walau tercetak) atau 'static'
     let currentActiveItem = null;
+    let modalActiveItem = null;
+    let pendingDeleteId = null;
     let historyData = [];
 
     const isAppsScript = typeof google !== 'undefined' && google.script && google.script.run;
@@ -523,13 +575,13 @@
               <a href="${safeUrl}" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block mt-0.5">${safeUrl}</a>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
-              <button onclick="selectFromHistory('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition">
+              <button onclick="openViewModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition">
                 Lihat
               </button>
               <button onclick="openEditModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition" title="Ubah link barcode ini">
                 Edit Link
               </button>
-              <button onclick="removeItem('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition">
+              <button onclick="openDeleteModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition">
                 Hapus
               </button>
             </div>
@@ -538,20 +590,95 @@
       }).join('');
     }
 
-    function selectFromHistory(id) {
+    // Modal Lihat Barcode (Pop-up)
+    function openViewModal(id) {
       const found = historyData.find(function(x) { return String(x.id) === String(id); });
       if (!found) return;
-      currentActiveItem = found;
-      document.getElementById('labelInput').value = found.label;
-      document.getElementById('urlInput').value = found.url;
-      setType(found.type || 'qr');
-      setLinkMode(found.mode || 'dynamic');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      showToast('Menampilkan: ' + found.label);
+      modalActiveItem = found;
+
+      document.getElementById('viewModalTitle').textContent = found.label || 'Barcode';
+      const linkEl = document.getElementById('viewModalUrl');
+      linkEl.textContent = found.url;
+      linkEl.href = found.url;
+
+      const typeBadge = document.getElementById('viewModalTypeBadge');
+      typeBadge.textContent = found.type === '1d' ? 'Barcode 1D' : 'QR Barcode';
+
+      const modeBadge = document.getElementById('viewModalModeBadge');
+      if (found.mode !== 'static') {
+        modeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700';
+        modeBadge.textContent = 'Dinamis (Bisa Diedit)';
+      } else {
+        modeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500';
+        modeBadge.textContent = 'Statis';
+      }
+
+      const encodedValue = (found.mode !== 'static' && found.id && GAS_API_URL)
+        ? (GAS_API_URL + '?r=' + found.id)
+        : found.url;
+
+      const qrCanvas = document.getElementById('viewModalQrCanvas');
+      const barcodeCanvas = document.getElementById('viewModalBarcodeCanvas');
+
+      if (found.type === '1d') {
+        qrCanvas.classList.add('hidden');
+        barcodeCanvas.classList.remove('hidden');
+        try {
+          JsBarcode(barcodeCanvas, encodedValue, {
+            format: 'CODE128',
+            width: 3,
+            height: 120,
+            displayValue: false,
+            margin: 16
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        barcodeCanvas.classList.add('hidden');
+        qrCanvas.classList.remove('hidden');
+        new QRious({
+          element: qrCanvas,
+          value: encodedValue,
+          size: 600,
+          level: 'H'
+        });
+      }
+
+      document.getElementById('viewModal').classList.remove('hidden');
     }
 
-    function removeItem(id) {
-      if (!confirm('Yakin ingin menghapus barcode ini?')) return;
+    function closeViewModal() {
+      document.getElementById('viewModal').classList.add('hidden');
+      modalActiveItem = null;
+    }
+
+    function downloadModalBarcode() {
+      if (!modalActiveItem) return;
+      generateAndDownloadBarcode(modalActiveItem.label, modalActiveItem.url, modalActiveItem.id, modalActiveItem.type, modalActiveItem.mode);
+    }
+
+    function copyModalLink() {
+      if (!modalActiveItem) return;
+      copyTextToClipboard(modalActiveItem.url);
+    }
+
+    // Modal Konfirmasi Hapus
+    function openDeleteModal(id) {
+      pendingDeleteId = id;
+      document.getElementById('deleteModal').classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      pendingDeleteId = null;
+      document.getElementById('deleteModal').classList.add('hidden');
+    }
+
+    function confirmDelete() {
+      if (!pendingDeleteId) return;
+      const id = pendingDeleteId;
+      closeDeleteModal();
+
       historyData = historyData.filter(function(x) { return String(x.id) !== String(id); });
       renderHistoryList();
 
@@ -609,13 +736,15 @@
     function downloadCurrentBarcode() {
       const label = document.getElementById('labelInput').value.trim() || 'BARCODE LINK';
       const targetUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
-
       const activeId = currentActiveItem ? currentActiveItem.id : String(Date.now());
-      const encodedValue = getBarcodeEncodedValue(activeId, targetUrl, currentMode);
+      generateAndDownloadBarcode(label, targetUrl, activeId, currentType, currentMode);
+    }
 
+    function generateAndDownloadBarcode(label, targetUrl, activeId, type, mode) {
+      const encodedValue = getBarcodeEncodedValue(activeId, targetUrl, mode);
       const hdBarcodeCanvas = document.createElement('canvas');
 
-      if (currentType === 'qr') {
+      if (type === 'qr') {
         new QRious({
           element: hdBarcodeCanvas,
           value: encodedValue,
@@ -695,8 +824,7 @@
       return lines;
     }
 
-    function copyCurrentLink() {
-      const url = normalizeUrl(document.getElementById('urlInput').value);
+    function copyTextToClipboard(url) {
       const temp = document.createElement('textarea');
       temp.value = url;
       document.body.appendChild(temp);
@@ -704,6 +832,11 @@
       document.execCommand('copy');
       document.body.removeChild(temp);
       showToast('Link disalin ke clipboard');
+    }
+
+    function copyCurrentLink() {
+      const url = normalizeUrl(document.getElementById('urlInput').value);
+      copyTextToClipboard(url);
     }
 
     function showToast(msg) {
