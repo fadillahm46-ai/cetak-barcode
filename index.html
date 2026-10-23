@@ -13,7 +13,59 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Inter', sans-serif; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.8s linear infinite; }
   </style>
+
+  <!-- PENGALIHAN INSTAN UNTUK SCAN QR DINAMIS -->
+  <script>
+    (function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectId = urlParams.get('r');
+      if (redirectId) {
+        document.write(`
+          <div style="font-family:'Inter',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f8fafc;color:#1e293b;text-align:center;padding:24px;">
+            <div style="width:44px;height:44px;border:4px solid #e2e8f0;border-top-color:#4f46e5;border-radius:50%;margin-bottom:16px;" class="spinner"></div>
+            <h2 style="font-size:16px;font-weight:700;margin:0 0 6px 0;">Membuka Link Tujuan...</h2>
+            <p id="redirectNote" style="font-size:13px;color:#64748b;margin:0;">Menghubungkan ke sistem...</p>
+          </div>
+        `);
+
+        // URL Google Apps Script Anda sebagai database tujuan
+        const GAS_URL = 'https://script.google.com/macros/s/AKfycbw3obdqI-8lohd_ThOXd5-2VH7HVbSZjuHZPCcwxTqzLJU9CefOookSwxSVVZqyy3OSow/exec';
+
+        // 1. Cek penyimpanan lokal terlebih dahulu untuk kecepatan instan
+        const localCached = localStorage.getItem('GAS_BARCODE_HISTORY_V2');
+        let localFound = null;
+        if (localCached) {
+          try {
+            const list = JSON.parse(localCached);
+            const item = list.find(function(x) { return String(x.id) === String(redirectId); });
+            if (item && item.url) localFound = item.url;
+          } catch(e){}
+        }
+
+        // 2. Ambil link paling baru dari Google Sheets
+        fetch(GAS_URL + '?action=get&id=' + encodeURIComponent(redirectId) + '&_t=' + Date.now())
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            const finalUrl = (data && data.url) ? data.url : localFound;
+            if (finalUrl) {
+              window.location.replace(finalUrl);
+            } else {
+              document.getElementById('redirectNote').textContent = 'Link barcode tidak ditemukan atau telah dihapus.';
+            }
+          })
+          .catch(function() {
+            if (localFound) {
+              window.location.replace(localFound);
+            } else {
+              document.getElementById('redirectNote').textContent = 'Gagal memuat link. Silakan periksa koneksi internet Anda.';
+            }
+          });
+      }
+    })();
+  </script>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen p-4 md:p-6">
 
@@ -37,11 +89,14 @@
         <canvas id="viewModalQrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
         <canvas id="viewModalBarcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
 
-        <div class="mt-3 w-full bg-white p-2.5 rounded-xl border border-slate-200 text-left space-y-1">
-          <div class="text-[10px] text-slate-400 font-medium">Link Tertanam di Barcode:</div>
-          <div id="viewModalEncodedUrl" class="text-[11px] font-mono text-slate-600 truncate bg-slate-50 px-2 py-1 rounded border border-slate-100"></div>
-          <div class="text-[10px] text-slate-400 font-medium pt-1">Tujuan Akhir:</div>
-          <a id="viewModalUrl" href="#" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block font-semibold"></a>
+        <div class="mt-3 w-full bg-white p-3 rounded-xl border border-slate-200 text-left space-y-1.5">
+          <div class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Hasil Scan Kamera:</div>
+          <div id="viewModalEncodedUrl" class="text-xs font-mono text-indigo-700 truncate bg-indigo-50/60 px-2 py-1 rounded border border-indigo-100 font-medium"></div>
+          
+          <div id="viewModalTargetBox">
+            <div class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider pt-1">Otomatis Melompat Ke:</div>
+            <a id="viewModalUrl" href="#" target="_blank" class="text-xs text-slate-700 hover:text-indigo-600 hover:underline truncate block font-medium"></a>
+          </div>
         </div>
       </div>
 
@@ -142,39 +197,39 @@
               type="text" 
               id="urlInput" 
               required
-              placeholder="https://contoh.com atau link Google Form" 
+              placeholder="https://contoh.com atau link form" 
               oninput="renderLivePreview()"
               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          <!-- Pilihan Mode Link: Dinamis (Bisa diedit) vs Statis -->
+          <!-- Pilihan Mode: Dinamis vs Statis -->
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Kemampuan Edit Barcode</label>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Pilihan Tipe Barcode</label>
             <div class="grid grid-cols-2 gap-2">
               <button 
                 type="button" 
                 id="btnModeDynamic"
                 onclick="setLinkMode('dynamic')"
-                class="py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col">
-                <span class="text-xs font-bold flex items-center gap-1">
+                class="py-2.5 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col">
+                <span class="text-xs font-bold flex items-center gap-1.5">
                   <span class="w-2 h-2 rounded-full bg-emerald-500"></span> QR Dinamis
                 </span>
-                <span class="text-[10px] text-indigo-700 mt-0.5">Bisa diedit kapan saja meski sudah dicetak</span>
+                <span class="text-[10px] text-indigo-700 mt-1 leading-snug">Bisa diedit kapan saja walau sudah dicetak fisik</span>
               </button>
               <button 
                 type="button" 
                 id="btnModeStatic"
                 onclick="setLinkMode('static')"
-                class="py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col">
+                class="py-2.5 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col">
                 <span class="text-xs font-bold">QR Statis</span>
-                <span class="text-[10px] text-slate-400 mt-0.5">Link tertanam mati (tidak bisa diedit)</span>
+                <span class="text-[10px] text-slate-400 mt-1 leading-snug">Langsung ke link tujuan (tidak bisa diedit setelah dicetak)</span>
               </button>
             </div>
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Model Barcode</label>
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Model Tampilan</label>
             <div class="grid grid-cols-2 gap-2">
               <button 
                 type="button" 
@@ -211,7 +266,7 @@
           <canvas id="qrCanvas" class="bg-white p-2 rounded-lg shadow-sm w-44 h-44"></canvas>
           <canvas id="barcodeCanvas" class="hidden bg-white p-2 rounded-lg shadow-sm max-w-full h-auto"></canvas>
 
-          <a id="previewUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block">
+          <a id="previewUrl" href="#" target="_blank" class="mt-2.5 text-xs text-indigo-600 hover:underline truncate max-w-full block font-medium">
             https://contoh.com
           </a>
         </div>
@@ -261,7 +316,7 @@
 
   <script>
     let currentType = 'qr';
-    let currentMode = 'dynamic'; // 'dynamic' (bisa diedit walau tercetak) atau 'static'
+    let currentMode = 'dynamic';
     let currentActiveItem = null;
     let pendingFormId = 'qr_' + Date.now();
     let modalActiveItem = null;
@@ -287,13 +342,13 @@
       loadHistory();
     };
 
-    // Fungsi komunikasi sinkronisasi ke Google Apps Script yang aman dari CORS
+    // Fungsi komunikasi sinkronisasi ke Google Apps Script
     async function syncToGAS(action, params) {
       if (!GAS_API_URL) return null;
       try {
         const queryParams = new URLSearchParams({
           action: action,
-          _t: Date.now() // Cache-buster
+          _t: Date.now()
         });
         if (params) {
           for (const k in params) {
@@ -305,15 +360,7 @@
         const res = await fetch(GAS_API_URL + '?' + queryParams.toString());
         return await res.json();
       } catch (err) {
-        console.warn('Sync GET gagal, mencoba fallback POST:', err);
-        try {
-          await fetch(GAS_API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: action, payload: params })
-          });
-        } catch (e2) {}
+        console.warn('Sync GET fallback:', err);
         return null;
       }
     }
@@ -346,24 +393,32 @@
       const badge = document.getElementById('previewBadge');
 
       if (mode === 'dynamic') {
-        btnDynamic.className = 'py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
-        btnStatic.className = 'py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
+        btnDynamic.className = 'py-2.5 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
+        btnStatic.className = 'py-2.5 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
         badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 mb-2';
         badge.textContent = 'QR Dinamis (Bisa Diedit)';
       } else {
-        btnStatic.className = 'py-2 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
-        btnDynamic.className = 'py-2 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
+        btnStatic.className = 'py-2.5 px-3 rounded-xl text-left border border-indigo-600 bg-indigo-50/70 text-indigo-900 transition flex flex-col';
+        btnDynamic.className = 'py-2.5 px-3 rounded-xl text-left border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition flex flex-col';
         badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 mb-2';
-        badge.textContent = 'QR Statis (Tidak Bisa Diedit)';
+        badge.textContent = 'QR Statis (Langsung ke Link Asli)';
       }
       renderLivePreview();
     }
 
-    // Mendapatkan URL yang di-encode ke barcode
+    // Mendapatkan URL bersih yang ditanam ke dalam pola barcode
     function getBarcodeEncodedValue(itemId, targetUrl, mode) {
-      if (mode === 'dynamic' && itemId && GAS_API_URL) {
-        return GAS_API_URL + '?r=' + itemId;
+      if (mode === 'dynamic' && itemId) {
+        // Gunakan domain web Anda sendiri (misal https://cetak-barcode.vercel.app/?r=...)
+        // Ini membuat QR bersih, kotak-kotak renggang, dan kamera HP menampilkan domain Anda
+        const origin = window.location.origin;
+        if (origin && origin !== 'null' && !origin.includes('file:')) {
+          return origin + window.location.pathname.replace(/\/$/, '') + '/?r=' + encodeURIComponent(itemId);
+        }
+        // Fallback jika dibuka secara lokal tanpa web server
+        return GAS_API_URL + '?r=' + encodeURIComponent(itemId);
       }
+      // Jika mode statis, langsung tanam link tujuan asli 100%
       return targetUrl;
     }
 
@@ -377,7 +432,6 @@
       linkEl.textContent = finalUrl;
       linkEl.href = finalUrl;
 
-      // Gunakan ID aktif jika sudah disimpan, atau ID sesi baru
       const activeId = currentActiveItem ? currentActiveItem.id : pendingFormId;
       const encodedValue = (currentMode === 'dynamic')
         ? getBarcodeEncodedValue(activeId, finalUrl, 'dynamic')
@@ -393,7 +447,7 @@
           element: qrCanvas,
           value: encodedValue,
           size: 600,
-          level: 'H'
+          level: 'M' // Level M membuat kotak lebih besar, renggang, dan sangat cepat di-scan
         });
       } else {
         qrCanvas.classList.add('hidden');
@@ -421,7 +475,7 @@
 
       const btn = document.getElementById('submitBtn');
       btn.disabled = true;
-      btn.textContent = 'Menyimpan ke Google Sheets...';
+      btn.textContent = 'Menyimpan...';
 
       const now = new Date();
       const formattedDate = now.toLocaleDateString('id-ID') + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -459,7 +513,6 @@
       renderHistoryList();
       resetBtn(btn);
       renderLivePreview();
-      // Siapkan ID baru untuk form berikutnya agar tidak tertukar
       pendingFormId = 'qr_' + Date.now();
       showToast('Barcode berhasil dibuat & tersimpan!');
     }
@@ -484,7 +537,6 @@
       document.getElementById('editModal').classList.add('hidden');
     }
 
-    // Simpan hasil edit link (Dipastikan tersimpan ke Google Sheets saat itu juga!)
     async function handleUpdateBarcode(e) {
       e.preventDefault();
       const id = document.getElementById('editId').value;
@@ -552,7 +604,7 @@
             }
           })
           .catch(function(err) {
-            console.warn('Gagal memuat dari Google Sheets:', err);
+            console.warn('Load Sheets:', err);
           });
       } else {
         const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -593,15 +645,17 @@
                 <p class="text-sm font-semibold text-slate-800 truncate">${safeLabel}</p>
                 <span class="text-[11px] text-slate-400">• ${escapeHtml(item.createdAt || '')}</span>
               </div>
-              <a href="${safeUrl}" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block mt-0.5">${safeUrl}</a>
+              <a href="${safeUrl}" target="_blank" class="text-xs text-indigo-600 hover:underline truncate block mt-0.5 font-medium">${safeUrl}</a>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <button onclick="openViewModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition">
                 Lihat
               </button>
-              <button onclick="openEditModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition" title="Ubah link barcode ini">
-                Edit Link
-              </button>
+              ${isDynamic ? `
+                <button onclick="openEditModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold transition" title="Ubah link barcode ini">
+                  Edit Link
+                </button>
+              ` : ''}
               <button onclick="openDeleteModal('${item.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition">
                 Hapus
               </button>
@@ -626,16 +680,22 @@
       typeBadge.textContent = found.type === '1d' ? 'Barcode 1D' : 'QR Barcode';
 
       const modeBadge = document.getElementById('viewModalModeBadge');
-      if (found.mode !== 'static') {
+      const targetBox = document.getElementById('viewModalTargetBox');
+
+      const isDynamic = (found.mode !== 'static');
+      if (isDynamic) {
         modeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700';
         modeBadge.textContent = 'Dinamis (Bisa Diedit)';
+        targetBox.classList.remove('hidden');
       } else {
         modeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500';
-        modeBadge.textContent = 'Statis';
+        modeBadge.textContent = 'Statis (Link Asli)';
+        targetBox.classList.add('hidden');
       }
 
-      const encodedValue = (found.mode !== 'static' && found.id && GAS_API_URL)
-        ? (GAS_API_URL + '?r=' + found.id)
+      // Hitung link bersih
+      const encodedValue = isDynamic
+        ? getBarcodeEncodedValue(found.id, found.url, 'dynamic')
         : found.url;
 
       document.getElementById('viewModalEncodedUrl').textContent = encodedValue;
@@ -664,7 +724,7 @@
           element: qrCanvas,
           value: encodedValue,
           size: 600,
-          level: 'H'
+          level: 'M'
         });
       }
 
@@ -683,6 +743,7 @@
 
     function copyModalLink() {
       if (!modalActiveItem) return;
+      // Salin link tujuan akhir pengguna
       copyTextToClipboard(modalActiveItem.url);
     }
 
@@ -754,7 +815,6 @@
       const label = document.getElementById('labelInput').value.trim() || 'BARCODE LINK';
       const targetUrl = normalizeUrl(document.getElementById('urlInput').value.trim());
       
-      // Jika belum pernah diklik simpan, simpan otomatis agar ID terdaftar resmi di Google Sheets
       if (!currentActiveItem) {
         await handleSave();
       }
@@ -772,7 +832,7 @@
           element: hdBarcodeCanvas,
           value: encodedValue,
           size: 1000,
-          level: 'H',
+          level: 'M',
           padding: 0
         });
       } else {
